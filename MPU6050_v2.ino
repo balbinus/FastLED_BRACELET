@@ -26,20 +26,12 @@
  We are also using the 400 kHz fast I2C mode by setting the TWI_FREQ  to 400000L /twi.h utility file.
  */
 
-#define I2C_IMPLEMENTATION_WIRE     0x00
-#define I2C_IMPLEMENTATION_FASTWIRE 0x10
-#define I2C_IMPLEMENTATION          I2C_IMPLEMENTATION_WIRE
-
 /// ANSI unsigned short _Fract.  range is 0 to 0.99609375
 ///                 in steps of 0.00390625
 // 1/256ths?
 typedef uint8_t   fract8;   ///< ANSI: unsigned short _Fract
 
-#if I2C_IMPLEMENTATION == I2C_IMPLEMENTATION_WIRE
-#  include <Wire.h>
-#elif I2C_IMPLEMENTATION == I2C_IMPLEMENTATION_FASTWIRE
-#  include "Fastwire.h"
-#endif
+#include <Wire.h>
 
 #include <Adafruit_DotStar.h>
 
@@ -186,16 +178,7 @@ enum Ascale
     AFS_16G
 };
 
-enum Gscale
-{
-    GFS_250DPS = 0,
-    GFS_500DPS,
-    GFS_1000DPS,
-    GFS_2000DPS
-};
-
 // Specify sensor full scale
-int Gscale = GFS_250DPS;
 int Ascale = AFS_2G;
 float aRes, gRes;                                                              // scale resolutions per LSB for the sensors
 
@@ -204,9 +187,7 @@ int intPin = 2;                                                               //
 
 int16_t accelCount[3];                                                         // Stores the 16-bit signed accelerometer sensor output
 float ax, ay, az;                                                              // Stores the real accel value in g's
-/*int16_t gyroCount[3];                                                          // Stores the 16-bit signed gyro sensor output
-float gx, gy, gz;                                                              // Stores the real gyro value in degrees per seconds*/
-float /*gyroBias[3],*/ accelBias[3];                                               // Bias corrections for gyro and accelerometer
+float accelBias[3];                                               // Bias corrections for gyro and accelerometer
 int16_t tempCount;                                                             // Stores the internal chip temperature sensor output 
 float temperature;                                                             // Scaled temperature in degrees Celsius
 float SelfTest[3];                                                             // Gyro and accelerometer self-test sensor output
@@ -232,13 +213,6 @@ void initMPU6050()
 
     // Set sample rate = gyroscope output rate/(1 + SMPLRT_DIV)
     writeByte(MPU6050_ADDRESS, SMPLRT_DIV, 0x04);                              // Use a 200 Hz sample rate 
-
-    // Set gyroscope full scale range
-    // Range selects FS_SEL and AFS_SEL are 0 - 3, so 2-bit values are left-shifted into positions 4:3
-/*    c = readByte(MPU6050_ADDRESS, GYRO_CONFIG);
-    writeByte(MPU6050_ADDRESS, GYRO_CONFIG, c & ~0xE0);                        // Clear self-test bits [7:5] 
-    writeByte(MPU6050_ADDRESS, GYRO_CONFIG, c & ~0x18);                        // Clear AFS bits [4:3]
-    writeByte(MPU6050_ADDRESS, GYRO_CONFIG, c | Gscale << 3);                  // Set full scale range for the gyro*/
 
     // Set accelerometer configuration
     c = readByte(MPU6050_ADDRESS, ACCEL_CONFIG);
@@ -270,11 +244,11 @@ void initMPU6050()
 
 // Function which accumulates gyro and accelerometer data after device initialization. It calculates the average
 // of the at-rest readings and then loads the resulting offsets into accelerometer and gyro bias registers.
-void calibrateMPU6050(/*float *dest1, */float *dest2)
+void calibrateMPU6050(float *dest2)
 {
     uint8_t data[12];                                                          // data array to hold accelerometer and gyro x, y, z, data
     uint16_t ii, packet_count, fifo_count;
-    int32_t /*gyro_bias[3] = { 0, 0, 0 }, */accel_bias[3] = { 0, 0, 0 };
+    int32_t accel_bias[3] = { 0, 0, 0 };
 
 // reset device, reset all registers, clear gyro and accelerometer bias registers
     writeByte(MPU6050_ADDRESS, PWR_MGMT_1, 0x80);                              // Write a one to bit 7 reset bit; toggle reset device
@@ -298,10 +272,8 @@ void calibrateMPU6050(/*float *dest1, */float *dest2)
 // Configure MPU6050 gyro and accelerometer for bias calculation
     writeByte(MPU6050_ADDRESS, CONFIG, 0x01);                                  // Set low-pass filter to 188 Hz
     writeByte(MPU6050_ADDRESS, SMPLRT_DIV, 0x00);                              // Set sample rate to 1 kHz
-    //~ writeByte(MPU6050_ADDRESS, GYRO_CONFIG, 0x00);                             // Set gyro full-scale to 250 degrees per second, maximum sensitivity
     writeByte(MPU6050_ADDRESS, ACCEL_CONFIG, 0x00);                            // Set accelerometer full-scale to 2 g, maximum sensitivity
 
-    //~ uint16_t gyrosensitivity = 131;                                            // = 131 LSB/degrees/sec
     uint16_t accelsensitivity = 16384;                                         // = 16384 LSB/g
 
 // Configure FIFO to capture accelerometer and gyro data for bias calculation
@@ -322,53 +294,14 @@ void calibrateMPU6050(/*float *dest1, */float *dest2)
         accel_temp[0] = (int16_t) (((int16_t) data[0] << 8) | data[1]);        // Form signed 16-bit integer for each sample in FIFO
         accel_temp[1] = (int16_t) (((int16_t) data[2] << 8) | data[3]);
         accel_temp[2] = (int16_t) (((int16_t) data[4] << 8) | data[5]);
-        /*gyro_temp[0] = (int16_t) (((int16_t) data[6] << 8) | data[7]);
-        gyro_temp[1] = (int16_t) (((int16_t) data[8] << 8) | data[9]);
-        gyro_temp[2] = (int16_t) (((int16_t) data[10] << 8) | data[11]);*/
 
         accel_bias[0] += (int32_t) accel_temp[0];                              // Sum individual signed 16-bit biases to get accumulated signed 32-bit biases
         accel_bias[1] += (int32_t) accel_temp[1];
         accel_bias[2] += (int32_t) accel_temp[2];
-        /*gyro_bias[0] += (int32_t) gyro_temp[0];
-        gyro_bias[1] += (int32_t) gyro_temp[1];
-        gyro_bias[2] += (int32_t) gyro_temp[2];*/
-
     }
     accel_bias[0] /= (int32_t) packet_count;                                   // Normalize sums to get average count biases
     accel_bias[1] /= (int32_t) packet_count;
     accel_bias[2] /= (int32_t) packet_count;
-    /*gyro_bias[0] /= (int32_t) packet_count;
-    gyro_bias[1] /= (int32_t) packet_count;
-    gyro_bias[2] /= (int32_t) packet_count;*/
-
-    /*if (accel_bias[2] > 0L)
-    {
-        accel_bias[2] -= (int32_t) accelsensitivity;
-    }                                                                          // Remove gravity from the z-axis accelerometer bias calculation
-    else
-    {
-        accel_bias[2] += (int32_t) accelsensitivity;
-    }*/
-
-// Construct the gyro biases for push to the hardware gyro bias registers, which are reset to zero upon device startup
-    /*data[0] = (-gyro_bias[0] / 4 >> 8) & 0xFF;                                 // Divide by 4 to get 32.9 LSB per deg/s to conform to expected bias input format
-    data[1] = (-gyro_bias[0] / 4) & 0xFF;                                      // Biases are additive, so change sign on calculated average gyro biases
-    data[2] = (-gyro_bias[1] / 4 >> 8) & 0xFF;
-    data[3] = (-gyro_bias[1] / 4) & 0xFF;
-    data[4] = (-gyro_bias[2] / 4 >> 8) & 0xFF;
-    data[5] = (-gyro_bias[2] / 4) & 0xFF;*/
-
-// Push gyro biases to hardware registers; works well for gyro but not for accelerometer
-//  writeByte(MPU6050_ADDRESS, XG_OFFS_USRH, data[0]); 
-//  writeByte(MPU6050_ADDRESS, XG_OFFS_USRL, data[1]);
-//  writeByte(MPU6050_ADDRESS, YG_OFFS_USRH, data[2]);
-//  writeByte(MPU6050_ADDRESS, YG_OFFS_USRL, data[3]);
-//  writeByte(MPU6050_ADDRESS, ZG_OFFS_USRH, data[4]);
-//  writeByte(MPU6050_ADDRESS, ZG_OFFS_USRL, data[5]);
-
-    /*dest1[0] = (float) gyro_bias[0] / (float) gyrosensitivity;                 // construct gyro bias in deg/s for later manual subtraction
-    dest1[1] = (float) gyro_bias[1] / (float) gyrosensitivity;
-    dest1[2] = (float) gyro_bias[2] / (float) gyrosensitivity;*/
 
 // Construct the accelerometer biases for push to the hardware accelerometer bias registers. These registers contain
 // factory trim values which must be added to the calculated accelerometer biases; on boot up these registers will hold
@@ -432,7 +365,6 @@ void MPU6050SelfTest(float *destination)                                       /
 
     // Configure the accelerometer for self-test
     writeByte(MPU6050_ADDRESS, ACCEL_CONFIG, 0xF0);                            // Enable self test on all three axes and set accelerometer range to +/- 8 g
-    //~ writeByte(MPU6050_ADDRESS, GYRO_CONFIG, 0xE0);                             // Enable self test on all three axes and set gyro range to +/- 250 degrees/s
     delay(250);                                                                // Delay a while to let the device execute the self-test
     rawData[0] = readByte(MPU6050_ADDRESS, SELF_TEST_X);                       // X-axis self-test results
     rawData[1] = readByte(MPU6050_ADDRESS, SELF_TEST_Y);                       // Y-axis self-test results
@@ -442,23 +374,10 @@ void MPU6050SelfTest(float *destination)                                       /
     selfTest[0] = (rawData[0] >> 3) | (rawData[3] & 0x30) >> 4;                // XA_TEST result is a five-bit unsigned integer
     selfTest[1] = (rawData[1] >> 3) | (rawData[3] & 0x0C) >> 2;                // YA_TEST result is a five-bit unsigned integer
     selfTest[2] = (rawData[2] >> 3) | (rawData[3] & 0x03) >> 0;                // ZA_TEST result is a five-bit unsigned integer
-    // Extract the gyration test results first
-    /*selfTest[3] = rawData[0] & 0x1F;                                           // XG_TEST result is a five-bit unsigned integer
-    selfTest[4] = rawData[1] & 0x1F;                                           // YG_TEST result is a five-bit unsigned integer
-    selfTest[5] = rawData[2] & 0x1F;                                           // ZG_TEST result is a five-bit unsigned integer   */
     // Process results to allow final comparison with factory set values
     factoryTrim[0] = (4096.0 * 0.34) * (pow((0.92 / 0.34), (((float) selfTest[0] - 1.0) / 30.0)));  // FT[Xa] factory trim calculation
     factoryTrim[1] = (4096.0 * 0.34) * (pow((0.92 / 0.34), (((float) selfTest[1] - 1.0) / 30.0)));  // FT[Ya] factory trim calculation
     factoryTrim[2] = (4096.0 * 0.34) * (pow((0.92 / 0.34), (((float) selfTest[2] - 1.0) / 30.0)));  // FT[Za] factory trim calculation
-    /*factoryTrim[3] = (25.0 * 131.0) * (pow(1.046, ((float) selfTest[3] - 1.0)));    // FT[Xg] factory trim calculation
-    factoryTrim[4] = (-25.0 * 131.0) * (pow(1.046, ((float) selfTest[4] - 1.0)));   // FT[Yg] factory trim calculation
-    factoryTrim[5] = (25.0 * 131.0) * (pow(1.046, ((float) selfTest[5] - 1.0)));    // FT[Zg] factory trim calculation*/
-
-    //  Output self-test results and factory trim calculation if desired
-    //  Serial.println(selfTest[0]); Serial.println(selfTest[1]); Serial.println(selfTest[2]);
-    //  Serial.println(selfTest[3]); Serial.println(selfTest[4]); Serial.println(selfTest[5]);
-    //  Serial.println(factoryTrim[0]); Serial.println(factoryTrim[1]); Serial.println(factoryTrim[2]);
-    //  Serial.println(factoryTrim[3]); Serial.println(factoryTrim[4]); Serial.println(factoryTrim[5]);
 
     // Report results as a ratio of (STR - FT)/FT; the change from Factory Trim of the Self-Test Response
     // To get to percent, must multiply by 100 and subtract result from 100
@@ -469,7 +388,6 @@ void MPU6050SelfTest(float *destination)                                       /
 
 }
 
-#if I2C_IMPLEMENTATION == I2C_IMPLEMENTATION_WIRE
 void writeByte(uint8_t address, uint8_t subAddress, uint8_t data)
 {
     Wire.beginTransmission(address);                                           // Initialize the Tx buffer
@@ -502,30 +420,6 @@ void readBytes(uint8_t address, uint8_t subAddress, uint8_t count,
         dest[i++] = Wire.read();
     }                                                                          // Put read results in the Rx buffer
 }
-#elif I2C_IMPLEMENTATION == I2C_IMPLEMENTATION_FASTWIRE
-void writeByte(uint8_t address, uint8_t subAddress, uint8_t data)
-{
-    Fastwire::beginTransmission(address);                                      // Initialize the Tx buffer
-    Fastwire::write(subAddress);                                               // Put slave register address in Tx buffer
-    Fastwire::write(data);                                                     // Put data in Tx buffer
-    //~ Fastwire::endTransmission();                                               // Send the Tx buffer
-}
-
-uint8_t readByte(uint8_t address, uint8_t subAddress)
-{
-    uint8_t data;                                                              // `data` will store the register data   
-    readBytes(address, subAddress, 1, &data);                                  // Use existing method.
-    return data;                                                               // Return data read from slave register
-}
-
-void readBytes(uint8_t address, uint8_t subAddress, uint8_t count,
-               uint8_t * dest)
-{
-    //~ Fastwire::beginTransmission(address);                                      // Initialize the Tx buffer
-    uint8_t ret = Fastwire::readBuf(address, subAddress, dest, count);                       // Read.
-    Serial.println(ret);
-}
-#endif
 
 #if ACTIVE_MODE == 0
 volatile uint32_t motion_detected = 0;
@@ -539,11 +433,7 @@ void flashLed()
 
 void setup()
 {
-#if I2C_IMPLEMENTATION == I2C_IMPLEMENTATION_WIRE
     Wire.begin();
-#elif I2C_IMPLEMENTATION == I2C_IMPLEMENTATION_FASTWIRE
-    Fastwire::setup(400, false);
-#endif
     Serial.begin(38400);
 
     // Set up the interrupt pin, its set as active high, push-pull
@@ -578,18 +468,8 @@ void setup()
         Serial.print("z-axis self test: acceleration trim within : ");
         Serial.print(SelfTest[2], 1);
         Serial.println("% of factory value");
-        /*Serial.print("x-axis self test: gyration trim within : ");
-        Serial.print(SelfTest[3], 1);
-        Serial.println("% of factory value");
-        Serial.print("y-axis self test: gyration trim within : ");
-        Serial.print(SelfTest[4], 1);
-        Serial.println("% of factory value");
-        Serial.print("z-axis self test: gyration trim within : ");
-        Serial.print(SelfTest[5], 1);
-        Serial.println("% of factory value");*/
 
-        if (SelfTest[0] < 1.0f && SelfTest[1] < 1.0f && SelfTest[2] < 1.0f
-           /* && SelfTest[3] < 1.0f && SelfTest[4] < 1.0f && SelfTest[5] < 1.0f*/)
+        if (SelfTest[0] < 1.0f && SelfTest[1] < 1.0f && SelfTest[2] < 1.0f)
         {
             Serial.println("=> SELF TEST PASSED!");
         }
@@ -598,12 +478,9 @@ void setup()
             Serial.println("=> SELF TEST FAILED :(");
         }
 
-        calibrateMPU6050(/*gyroBias, */accelBias);                                 // Calibrate gyro and accelerometers, load biases in bias registers
+        calibrateMPU6050(accelBias);                                 // Calibrate gyro and accelerometers, load biases in bias registers
         initMPU6050();
 #if ACTIVE_MODE == 0
-#if 0
-        LowPowerAccelOnlyMPU6050();
-#endif
         attachInterrupt(digitalPinToInterrupt(intPin), flashLed, RISING);
         Serial.println("MPU6050 initialized for passive data mode....");        // Initialize device for passive mode read of acclerometer
 #else
@@ -618,12 +495,17 @@ void setup()
     }
 }
 
+__attribute__ ((always_inline)) static inline uint8_t scale8_LEAVING_R1_DIRTY( uint8_t i, fract8 scale)
+{
+    return (((uint16_t)i) * ((uint16_t)(scale)+1)) >> 8;
+}
+
 /// ease8InOutCubic: 8-bit cubic ease-in / ease-out function
 ///                 Takes around 18 cycles on AVR
 static fract8 ease8InOutCubic(fract8 i)
 {
-    uint8_t ii  = i * i;
-    uint8_t iii = ii * i;
+    uint8_t ii  = scale8_LEAVING_R1_DIRTY(i, i);
+    uint8_t iii = scale8_LEAVING_R1_DIRTY(ii, i);
 
     uint16_t r1 = (3 * (uint16_t)(ii)) - ( 2 * (uint16_t)(iii));
 
@@ -663,15 +545,7 @@ static uint8_t triwave8(uint8_t in)
 ///             at the limits than 'sine' does.
 static uint8_t cubicwave8(uint8_t in)
 {
-    return ease8InOutCubic(triwave8(in));
-}
-
-__attribute__ ((always_inline)) static inline uint8_t scale8_video(uint8_t i, fract8 scale)
-{
-    uint8_t j = (((int)i * (int)scale) >> 8) + ((i&&scale)?1:0);
-    // uint8_t nonzeroscale = (scale != 0) ? 1 : 0;
-    // uint8_t j = (i == 0) ? 0 : (((int)i * (int)(scale) ) >> 8) + nonzeroscale;
-    return j;
+    return /*ease8InOutCubic(*/triwave8(in)/*)*/;
 }
 
 #if ACTIVE_MODE == 1
@@ -741,17 +615,6 @@ void active_loop()
         ax = (float) accelCount[0] * aRes - accelBias[0];                      // get actual g value, this depends on scale being set
         ay = (float) accelCount[1] * aRes - accelBias[1];
         az = (float) accelCount[2] * aRes - accelBias[2];
-
-        //~ readGyroData(gyroCount);                                               // Read the x/y/z adc values
-        //~ getGres();
-
-        //~ // Calculate the gyro value into actual degrees per second
-        //~ gx = (float) gyroCount[0] * gRes - gyroBias[0];                        // get actual gyro value, this depends on scale being set
-        //~ gy = (float) gyroCount[1] * gRes - gyroBias[1];
-        //~ gz = (float) gyroCount[2] * gRes - gyroBias[2];
-
-        //~ tempCount = readTempData();                                            // Read the x/y/z adc values
-        //~ temperature = ((float) tempCount) / 340. + 36.53;                      // Temperature in degrees Centigrade
     }
 
 #if ACTIVE_MODE == 1
@@ -761,38 +624,12 @@ void active_loop()
     {
 #ifdef DEBUG_PRINT_SERIAL
         // Print acceleration values in milligs!
-        //~ Serial.print("X-acceleration: ");
         Serial.print(1000 * ax);
         Serial.print(" ");
-        //~ Serial.print(" mg ");
-        //~ Serial.print("Y-acceleration: ");
         Serial.print(1000 * ay);
         Serial.print(" ");
-        //~ Serial.print(" mg ");
-        //~ Serial.print("Z-acceleration: ");
         Serial.print(1000 * az);
         Serial.println(" ");
-        //~ Serial.println(" mg");
-
-        // Print gyro values in degree/sec
-        //~ Serial.print("X-gyro rate: ");
-        //~ Serial.print(gx, 1);
-        //~ Serial.print(" ");
-        //~ Serial.print(" degrees/sec ");
-        //~ Serial.print("Y-gyro rate: ");
-        //~ Serial.print(gy, 1);
-        //~ Serial.print(" ");
-        //~ Serial.print(" degrees/sec ");
-        //~ Serial.print("Z-gyro rate: ");
-        //~ Serial.print(gz, 1);
-        //~ Serial.println();
-        //~ Serial.println(" degrees/sec");
-
-        // Print temperature in degrees Centigrade      
-        //~ Serial.print("Temperature is ");
-        //~ Serial.print(temperature, 2);
-        //~ Serial.println(" degrees C");                                          // Print T values to tenths of s degree C
-        //~ Serial.println("");
 #elif ACTIVE_MODE == 1
         led_state = !led_state;
         digitalWrite(LED_BUILTIN, led_state);
@@ -807,28 +644,6 @@ void active_loop()
 //===================================================================================================================
 //====== Set of useful function to access acceleration, gyroscope, and temperature data
 //===================================================================================================================
-
-void getGres()
-{
-    switch (Gscale)
-    {
-            // Possible gyro scales (and their register bit settings) are:
-            // 250 DPS (00), 500 DPS (01), 1000 DPS (10), and 2000 DPS  (11). 
-        case GFS_250DPS:
-            gRes = 250.0 / 32768.0;
-            break;
-        case GFS_500DPS:
-            gRes = 500.0 / 32768.0;
-            break;
-        case GFS_1000DPS:
-            gRes = 1000.0 / 32768.0;
-            break;
-        case GFS_2000DPS:
-            gRes = 2000.0 / 32768.0;
-            break;
-    }
-}
-
 void getAres()
 {
     switch (Ascale)
@@ -857,22 +672,6 @@ void readAccelData(int16_t * destination)
     destination[0] = (int16_t) ((rawData[0] << 8) | rawData[1]);               // Turn the MSB and LSB into a signed 16-bit value
     destination[1] = (int16_t) ((rawData[2] << 8) | rawData[3]);
     destination[2] = (int16_t) ((rawData[4] << 8) | rawData[5]);
-}
-
-void readGyroData(int16_t * destination)
-{
-    uint8_t rawData[6];                                                        // x/y/z gyro register data stored here
-    readBytes(MPU6050_ADDRESS, GYRO_XOUT_H, 6, &rawData[0]);                   // Read the six raw data registers sequentially into data array
-    destination[0] = (int16_t) ((rawData[0] << 8) | rawData[1]);               // Turn the MSB and LSB into a signed 16-bit value
-    destination[1] = (int16_t) ((rawData[2] << 8) | rawData[3]);
-    destination[2] = (int16_t) ((rawData[4] << 8) | rawData[5]);
-}
-
-int16_t readTempData()
-{
-    uint8_t rawData[2];                                                        // x/y/z gyro register data stored here
-    readBytes(MPU6050_ADDRESS, TEMP_OUT_H, 2, &rawData[0]);                    // Read the two raw data registers sequentially into data array 
-    return ((int16_t) rawData[0]) << 8 | rawData[1];                           // Turn the MSB and LSB into a 16-bit value
 }
 
 // Configure the motion detection control for low power accelerometer mode
