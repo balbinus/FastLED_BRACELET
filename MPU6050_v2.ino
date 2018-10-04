@@ -487,6 +487,10 @@ void setup()
     }
 }
 
+///  scale one byte by a second one, which is treated as
+///  the numerator of a fraction whose denominator is 256
+///  In other words, it computes i * (scale / 256)
+///  4 clocks AVR with MUL, 2 clocks ARM
 __attribute__ ((always_inline)) static inline uint8_t scale8( uint8_t i, fract8 scale)
 {
     return (((uint16_t)i) * ((uint16_t)(scale)+1)) >> 8;
@@ -554,7 +558,7 @@ static uint8_t triwave8(uint8_t in)
 ///             at the limits than 'sine' does.
 static uint8_t cubicwave8(uint8_t in)
 {
-    return /*ease8InOutCubic(*/triwave8(in)/*)*/;
+    return ease8InOutCubic(triwave8(in));
 }
 
 uint8_t color_index = 0;
