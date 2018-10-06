@@ -160,11 +160,12 @@ void loop()
             gState.int_cleared = true;
         }
         
-        // Breathe
+        // Rainbow
         leds[LED1] = CHSV(gState.hue, 0xFF, 0xFF);
     }
     else
     {
+        // Breathe white
         leds[LED1] = CRGB::White;
         leds[LED1].nscale8_video(cubicwave8(gState.hue));
     }
