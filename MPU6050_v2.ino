@@ -26,19 +26,40 @@
  We are also using the 400 kHz fast I2C mode by setting the TWI_FREQ  to 400000L /twi.h utility file.
  */
 
-/// ANSI unsigned short _Fract.  range is 0 to 0.99609375
-///                 in steps of 0.00390625
-// 1/256ths?
-typedef uint8_t   fract8;   ///< ANSI: unsigned short _Fract
-
 #include <Wire.h>
 
-#include <Adafruit_DotStar.h>
+#include <FastLED.h>
+#if defined(ADAFRUIT_ITSYBITSY_M4_EXPRESS)
+    #define DATA_PIN        8
+    #define CLK_PIN         6
+#elif defined(ARDUINO_TRINKET_M0)
+    #define DATA_PIN        7
+    #define CLK_PIN         6
+#else
+    #error NO DATA PIN
+#endif
+#define LED_TYPE            APA102
+#define COLOR_ORDER         GRB
+#define NUM_LEDS            1
+#define LED1                0
+#define LED2                1
 
-Adafruit_DotStar dot = Adafruit_DotStar(1, 8, 6);
+#define BRIGHTNESS          0xFF
+#define FRAMES_PER_SECOND   120
 
-#define ACTIVE_MODE         0
-#define DEBUG_PRINT_SERIAL  1
+CRGB leds[NUM_LEDS];
+
+// Acceleration threshold (in milli-gs),
+#define ACCEL_THRESHOLD             10
+// and duration of said threshold (in milliseconds)
+#define ACCEL_THRESHOLD_DURATION    25
+// And what to do when one sample does not meet the threshold
+// (0 = reset all count, 1 = decrement by 1, 2 = dec by 2, 3 = dec by 4)
+#define ACCEL_THRESHOLD_NEG_DEC     0x02
+// Release time of Motion Detected Event (for LED lighting, in seconds)
+#define ACCEL_RELEASE               10
+
+#define SERIAL_DEBUG                0
 
 // Define registers per MPU6050, Register Map and Descriptions, Rev 4.2, 08/19/2013 6 DOF Motion sensor fusion device
 // Invensense Inc., www.invensense.com
@@ -187,7 +208,7 @@ int intPin = 2;                                                               //
 
 int16_t accelCount[3];                                                         // Stores the 16-bit signed accelerometer sensor output
 float ax, ay, az;                                                              // Stores the real accel value in g's
-float accelBias[3];                                               // Bias corrections for gyro and accelerometer
+float accelBias[3];                                                            // Bias corrections for gyro and accelerometer
 int16_t tempCount;                                                             // Stores the internal chip temperature sensor output 
 float temperature;                                                             // Scaled temperature in degrees Celsius
 float SelfTest[3];                                                             // Gyro and accelerometer self-test sensor output
@@ -204,7 +225,7 @@ void initMPU6050()
 //  delay(100); // Delay 100 ms for PLL to get established on x-axis gyro; should check for PLL ready interrupt  
 
     // get stable time source
-    writeByte(MPU6050_ADDRESS, PWR_MGMT_1, 0x1);                              // Set clock source to be PLL with x-axis gyroscope reference, bits 2:0 = 001
+    writeByte(MPU6050_ADDRESS, PWR_MGMT_1, 0x1);                               // Set clock source to be PLL with x-axis gyroscope reference, bits 2:0 = 001
 
     // Configure Gyro and Accelerometer
     // Disable FSYNC and set accelerometer and gyro bandwidth to 44 and 42 Hz, respectively; 
@@ -229,10 +250,11 @@ void initMPU6050()
 // vince
     // Standby gyroscope
     c = readByte(MPU6050_ADDRESS, PWR_MGMT_2);
-    writeByte(MPU6050_ADDRESS, PWR_MGMT_2, c | 0x07);                           // STBY_XG, STBY_YG, STBY_ZG
+    writeByte(MPU6050_ADDRESS, PWR_MGMT_2, c | 0x07);                          // STBY_XG, STBY_YG, STBY_ZG
     
-    writeByte(MPU6050_ADDRESS, MOT_DUR,   1 /* ms */);
-    writeByte(MPU6050_ADDRESS, MOT_THR,  32 /* mg */ >> 2);
+    writeByte(MPU6050_ADDRESS, MOT_DUR, ACCEL_THRESHOLD_DURATION);             // in ms (LSB = 1 ms)
+    writeByte(MPU6050_ADDRESS, MOT_THR, ACCEL_THRESHOLD >> 2);                 // in mg (LSB = 2 mg)
+    writeByte(MPU6050_ADDRESS, MOT_DETECT_CTRL, ACCEL_THRESHOLD_NEG_DEC);      // 0 = reset all count on below-threshold sample, 1 = decrement by 1, 2 = dec by 2, 3 = dec by 4
     
     writeByte(MPU6050_ADDRESS, INT_ENABLE, 0x40);                              // Enable MOT (bit 6) interrupt
 
@@ -250,17 +272,17 @@ void calibrateMPU6050(float *dest2)
     uint16_t ii, packet_count, fifo_count;
     int32_t accel_bias[3] = { 0, 0, 0 };
 
-// reset device, reset all registers, clear gyro and accelerometer bias registers
+    // reset device, reset all registers, clear gyro and accelerometer bias registers
     writeByte(MPU6050_ADDRESS, PWR_MGMT_1, 0x80);                              // Write a one to bit 7 reset bit; toggle reset device
     delay(100);
 
-// get stable time source
-// Set clock source to be PLL with x-axis gyroscope reference, bits 2:0 = 001
+    // get stable time source
+    // Set clock source to be PLL with x-axis gyroscope reference, bits 2:0 = 001
     writeByte(MPU6050_ADDRESS, PWR_MGMT_1, 0x01);
     writeByte(MPU6050_ADDRESS, PWR_MGMT_2, 0x00);
     delay(200);
 
-// Configure device for bias calculation
+    // Configure device for bias calculation
     writeByte(MPU6050_ADDRESS, INT_ENABLE, 0x00);                              // Disable all interrupts
     writeByte(MPU6050_ADDRESS, FIFO_EN, 0x00);                                 // Disable FIFO
     writeByte(MPU6050_ADDRESS, PWR_MGMT_1, 0x00);                              // Turn on internal clock source
@@ -269,19 +291,19 @@ void calibrateMPU6050(float *dest2)
     writeByte(MPU6050_ADDRESS, USER_CTRL, 0x0C);                               // Reset FIFO and DMP
     delay(15);
 
-// Configure MPU6050 gyro and accelerometer for bias calculation
+    // Configure MPU6050 gyro and accelerometer for bias calculation
     writeByte(MPU6050_ADDRESS, CONFIG, 0x01);                                  // Set low-pass filter to 188 Hz
     writeByte(MPU6050_ADDRESS, SMPLRT_DIV, 0x00);                              // Set sample rate to 1 kHz
     writeByte(MPU6050_ADDRESS, ACCEL_CONFIG, 0x00);                            // Set accelerometer full-scale to 2 g, maximum sensitivity
 
     uint16_t accelsensitivity = 16384;                                         // = 16384 LSB/g
 
-// Configure FIFO to capture accelerometer and gyro data for bias calculation
+    // Configure FIFO to capture accelerometer and gyro data for bias calculation
     writeByte(MPU6050_ADDRESS, USER_CTRL, 0x40);                               // Enable FIFO  
     writeByte(MPU6050_ADDRESS, FIFO_EN, 0x08);                                 // Enable accelerometer sensors for FIFO  (max size 1024 bytes in MPU-6050)
     delay(80);                                                                 // accumulate 80 samples in 80 milliseconds = 960 bytes
 
-// At end of sample accumulation, turn off FIFO sensor read
+    // At end of sample accumulation, turn off FIFO sensor read
     writeByte(MPU6050_ADDRESS, FIFO_EN, 0x00);                                 // Disable gyro and accelerometer sensors for FIFO
     readBytes(MPU6050_ADDRESS, FIFO_COUNTH, 2, &data[0]);                      // read FIFO sample count
     fifo_count = ((uint16_t) data[0] << 8) | data[1];
@@ -303,11 +325,11 @@ void calibrateMPU6050(float *dest2)
     accel_bias[1] /= (int32_t) packet_count;
     accel_bias[2] /= (int32_t) packet_count;
 
-// Construct the accelerometer biases for push to the hardware accelerometer bias registers. These registers contain
-// factory trim values which must be added to the calculated accelerometer biases; on boot up these registers will hold
-// non-zero values. In addition, bit 0 of the lower byte must be preserved since it is used for temperature
-// compensation calculations. Accelerometer bias registers expect bias input as 2048 LSB per g, so that
-// the accelerometer biases calculated above must be divided by 8.
+    // Construct the accelerometer biases for push to the hardware accelerometer bias registers. These registers contain
+    // factory trim values which must be added to the calculated accelerometer biases; on boot up these registers will hold
+    // non-zero values. In addition, bit 0 of the lower byte must be preserved since it is used for temperature
+    // compensation calculations. Accelerometer bias registers expect bias input as 2048 LSB per g, so that
+    // the accelerometer biases calculated above must be divided by 8.
 
     int32_t accel_bias_reg[3] = { 0, 0, 0 };                                   // A place to hold the factory accelerometer trim biases
     readBytes(MPU6050_ADDRESS, XA_OFFSET_H, 2, &data[0]);                      // Read factory accelerometer trim values
@@ -350,7 +372,7 @@ void calibrateMPU6050(float *dest2)
 //  writeByte(MPU6050_ADDRESS, ZA_OFFSET_H, data[4]);
 //  writeByte(MPU6050_ADDRESS, ZA_OFFSET_L_TC, data[5]);
 
-// Output scaled accelerometer biases for manual subtraction in the main program
+    // Output scaled accelerometer biases for manual subtraction in the main program
     dest2[0] = (float) accel_bias[0] / (float) accelsensitivity;
     dest2[1] = (float) accel_bias[1] / (float) accelsensitivity;
     dest2[2] = (float) accel_bias[2] / (float) accelsensitivity;
@@ -423,7 +445,7 @@ void readBytes(uint8_t address, uint8_t subAddress, uint8_t count,
 
 volatile uint32_t motion_detected = 0;
 volatile bool int_cleared = true;
-void flashLed()
+void ISR_motion_detected()
 {
     motion_detected = millis();
     int_cleared = false;
@@ -432,7 +454,9 @@ void flashLed()
 void setup()
 {
     Wire.begin();
+#if SERIAL_DEBUG == 1
     Serial.begin(38400);
+#endif
 
     // Set up the interrupt pin, its set as active high, push-pull
     pinMode(intPin, INPUT);
@@ -443,18 +467,23 @@ void setup()
     digitalWrite(LED_BUILTIN, LOW);
     
     // DotStar
-    dot.begin();
-    dot.clear();
-    dot.show();
+    FastLED.addLeds<LED_TYPE,DATA_PIN,CLK_PIN,COLOR_ORDER>(leds, NUM_LEDS);
+    
+    // set master brightness control
+    FastLED.setBrightness(BRIGHTNESS);
 
     // Read the WHO_AM_I register, this is a good test of communication
     uint8_t c = readByte(MPU6050_ADDRESS, WHO_AM_I_MPU6050);                   // Read WHO_AM_I register for MPU-6050
 
     if (c == 0x68)                                                             // WHO_AM_I should always be 0x68
     {
+        digitalWrite(LED_BUILTIN, HIGH);
+#if SERIAL_DEBUG == 1
         Serial.println("MPU6050 is online...");
+#endif
 
         MPU6050SelfTest(SelfTest);                                             // Start by performing self test and reporting values
+#if SERIAL_DEBUG == 1
         Serial.print("x-axis self test: acceleration trim within : ");
         Serial.print(SelfTest[0], 1);
         Serial.println("% of factory value");
@@ -473,365 +502,60 @@ void setup()
         {
             Serial.println("=> SELF TEST FAILED :(");
         }
+#endif
 
         calibrateMPU6050(accelBias);                                 // Calibrate gyro and accelerometers, load biases in bias registers
         initMPU6050();
-        attachInterrupt(digitalPinToInterrupt(intPin), flashLed, RISING);
+        attachInterrupt(digitalPinToInterrupt(intPin), ISR_motion_detected, RISING);
+#if SERIAL_DEBUG == 1
         Serial.println("MPU6050 initialized for passive data mode....");        // Initialize device for passive mode read of acclerometer
+#endif
+        digitalWrite(LED_BUILTIN, LOW);
     }
     else
     {
+#if SERIAL_DEBUG == 1
         Serial.print("Could not connect to MPU6050: 0x");
         Serial.println(c, HEX);
+#endif
         while (1);                                                             // Loop forever if communication doesn't happen
     }
-}
-
-///  scale one byte by a second one, which is treated as
-///  the numerator of a fraction whose denominator is 256
-///  In other words, it computes i * (scale / 256)
-///  4 clocks AVR with MUL, 2 clocks ARM
-__attribute__ ((always_inline)) static inline uint8_t scale8( uint8_t i, fract8 scale)
-{
-    return (((uint16_t)i) * ((uint16_t)(scale)+1)) >> 8;
-}
-#define scale8_LEAVING_R1_DIRTY(X,Y) scale8(X,Y)
-
-///  The "video" version of scale8 guarantees that the output will
-///  be only be zero if one or both of the inputs are zero.  If both
-///  inputs are non-zero, the output is guaranteed to be non-zero.
-///  This makes for better 'video'/LED dimming, at the cost of
-///  several additional cycles.
-__attribute__ ((always_inline)) static inline uint8_t scale8_video( uint8_t i, fract8 scale)
-{
-    uint8_t j = (((int)i * (int)scale) >> 8) + ((i&&scale)?1:0);
-    // uint8_t nonzeroscale = (scale != 0) ? 1 : 0;
-    // uint8_t j = (i == 0) ? 0 : (((int)i * (int)(scale) ) >> 8) + nonzeroscale;
-    return j;
-}
-#define scale8_video_LEAVING_R1_DIRTY(X,Y) scale8_video(X,Y)
-
-#define cleanup_R1() 0
-
-/// ease8InOutCubic: 8-bit cubic ease-in / ease-out function
-///                 Takes around 18 cycles on AVR
-static fract8 ease8InOutCubic(fract8 i)
-{
-    uint8_t ii  = scale8_LEAVING_R1_DIRTY(i, i);
-    uint8_t iii = scale8_LEAVING_R1_DIRTY(ii, i);
-
-    uint16_t r1 = (3 * (uint16_t)(ii)) - ( 2 * (uint16_t)(iii));
-
-    /* the code generated for the above *'s automatically
-       cleans up R1, so there's no need to explicitily call
-       cleanup_R1(); */
-
-    uint8_t result = r1;
-
-    // if we got "256", return 255:
-    if( r1 & 0x100 ) {
-        result = 255;
-    }
-    return result;
-}
-
-/// triwave8: triangle (sawtooth) wave generator.  Useful for
-///           turning a one-byte ever-increasing value into a
-///           one-byte value that oscillates up and down.
-///
-///           input         output
-///           0..127        0..254 (positive slope)
-///           128..255      254..0 (negative slope)
-///
-/// On AVR this function takes just three cycles.
-///
-static uint8_t triwave8(uint8_t in)
-{
-    if( in & 0x80) {
-        in = 255 - in;
-    }
-    uint8_t out = in << 1;
-    return out;
-}
-
-/// cubicwave8: cubic waveform generator.  Spends visibly more time
-///             at the limits than 'sine' does.
-static uint8_t cubicwave8(uint8_t in)
-{
-    return ease8InOutCubic(triwave8(in));
 }
 
 uint8_t color_index = 0;
 void loop()
 {
     uint32_t now = millis();
-    if (now > 2000 && now - motion_detected < 2000)
+    // FIXME: find something better than this hack
+    if (now > (ACCEL_RELEASE * 1000) && now - motion_detected < (ACCEL_RELEASE * 1000))
     {
-        digitalWrite(LED_BUILTIN, HIGH);
         if (!int_cleared)
         {
             readByte(MPU6050_ADDRESS, INT_STATUS);
             int_cleared = true;
         }
         
-        dot.setPixelColor(0, Wheel(color_index));
+        // Breathe
+        leds[LED1] = CHSV(color_index, 0xFF, 0xFF);
     }
     else
     {
-        digitalWrite(LED_BUILTIN, LOW);
-        uint8_t ct = cubicwave8(color_index);
-        dot.setPixelColor(0, ct, ct, ct);
+        leds[LED1] = CRGB::White;
+        leds[LED1].nscale8_video(cubicwave8(color_index));
     }
-    
-    dot.show();
-    color_index++;
-    
-    delay(20);
-}
 
-// Input a value 0 to 255 to get a color value.
-// The colours are a transition r - g - b - back to r.
-#define Color(r,g,b) (((uint32_t) (r) << 16) | ((uint32_t) (g) << 8) | (b))
-uint32_t Wheel(byte WheelPos)
-{
-#ifdef WHEEL_BY_ADAFRUIT
-    WheelPos = 255 - WheelPos;
-    if(WheelPos < 85)
+    // send the 'leds' array out to the actual LED strip
+    FastLED.show();
+    
+    // insert a delay to keep the framerate modest
+    FastLED.delay(1000/FRAMES_PER_SECOND);
+
+    // do some periodic updates
+    EVERY_N_MILLISECONDS(10)
     {
-        return Color(255 - WheelPos * 3, 0, WheelPos * 3);
+        // slowly cycle the "base color" through the rainbow
+        color_index++;
     }
-    else if(WheelPos < 170)
-    {
-        WheelPos -= 85;
-        return Color(0, WheelPos * 3, 255 - WheelPos * 3);
-    }
-    else
-    {
-        WheelPos -= 170;
-        return Color(WheelPos * 3, 255 - WheelPos * 3, 0);
-    }
-#else
-    return hsv2rgb_rainbow(WheelPos, 0xFF, 0xFF);
-#endif
-}
-
-// Sometimes the compiler will do clever things to reduce
-// code size that result in a net slowdown, if it thinks that
-// a variable is not used in a certain location.
-// This macro does its best to convince the compiler that
-// the variable is used in this location, to help control
-// code motion and de-duplication that would result in a slowdown.
-#define FORCE_REFERENCE(var)  asm volatile( "" : : "r" (var) )
-
-
-#define K255 255
-#define K171 171
-#define K170 170
-#define K85  85
-
-uint32_t hsv2rgb_rainbow(uint8_t hue, uint8_t sat, uint8_t val)
-{
-    // Yellow has a higher inherent brightness than
-    // any other color; 'pure' yellow is perceived to
-    // be 93% as bright as white.  In order to make
-    // yellow appear the correct relative brightness,
-    // it has to be rendered brighter than all other
-    // colors.
-    // Level Y1 is a moderate boost, the default.
-    // Level Y2 is a strong boost.
-    const uint8_t Y1 = 1;
-    const uint8_t Y2 = 0;
-    
-    // G2: Whether to divide all greens by two.
-    // Depends GREATLY on your particular LEDs
-    const uint8_t G2 = 0;
-    
-    // Gscale: what to scale green down by.
-    // Depends GREATLY on your particular LEDs
-    //~ const uint8_t Gscale = 0;
-    
-    
-    //~ uint8_t hue = hsv.hue;
-    //~ uint8_t sat = hsv.sat;
-    //~ uint8_t val = hsv.val;
-    
-    uint8_t offset = hue & 0x1F; // 0..31
-    
-    // offset8 = offset * 8
-    uint8_t offset8 = offset;
-    {
-#if defined(__AVR__)
-        // Left to its own devices, gcc turns "x <<= 3" into a loop
-        // It's much faster and smaller to just do three single-bit shifts
-        // So this business is to force that.
-        offset8 <<= 1;
-        asm volatile("");
-        offset8 <<= 1;
-        asm volatile("");
-        offset8 <<= 1;
-#else
-        // On ARM and other non-AVR platforms, we just shift 3.
-        offset8 <<= 3;
-#endif
-    }
-    
-    uint8_t third = scale8( offset8, (256 / 3)); // max = 85
-    
-    uint8_t r, g, b;
-    
-    if( ! (hue & 0x80) ) {
-        // 0XX
-        if( ! (hue & 0x40) ) {
-            // 00X
-            //section 0-1
-            if( ! (hue & 0x20) ) {
-                // 000
-                //case 0: // R -> O
-                r = K255 - third;
-                g = third;
-                b = 0;
-                FORCE_REFERENCE(b);
-            } else {
-                // 001
-                //case 1: // O -> Y
-                if( Y1 ) {
-                    r = K171;
-                    g = K85 + third ;
-                    b = 0;
-                    FORCE_REFERENCE(b);
-                }
-                if( Y2 ) {
-                    r = K170 + third;
-                    //uint8_t twothirds = (third << 1);
-                    uint8_t twothirds = scale8( offset8, ((256 * 2) / 3)); // max=170
-                    g = K85 + twothirds;
-                    b = 0;
-                    FORCE_REFERENCE(b);
-                }
-            }
-        } else {
-            //01X
-            // section 2-3
-            if( !  (hue & 0x20) ) {
-                // 010
-                //case 2: // Y -> G
-                if( Y1 ) {
-                    //uint8_t twothirds = (third << 1);
-                    uint8_t twothirds = scale8( offset8, ((256 * 2) / 3)); // max=170
-                    r = K171 - twothirds;
-                    g = K170 + third;
-                    b = 0;
-                    FORCE_REFERENCE(b);
-                }
-                if( Y2 ) {
-                    r = K255 - offset8;
-                    g = K255;
-                    b = 0;
-                    FORCE_REFERENCE(b);
-                }
-            } else {
-                // 011
-                // case 3: // G -> A
-                r = 0;
-                FORCE_REFERENCE(r);
-                g = K255 - third;
-                b = third;
-            }
-        }
-    } else {
-        // section 4-7
-        // 1XX
-        if( ! (hue & 0x40) ) {
-            // 10X
-            if( ! ( hue & 0x20) ) {
-                // 100
-                //case 4: // A -> B
-                r = 0;
-                FORCE_REFERENCE(r);
-                //uint8_t twothirds = (third << 1);
-                uint8_t twothirds = scale8( offset8, ((256 * 2) / 3)); // max=170
-                g = K171 - twothirds; //K170?
-                b = K85  + twothirds;
-                
-            } else {
-                // 101
-                //case 5: // B -> P
-                r = third;
-                g = 0;
-                FORCE_REFERENCE(g);
-                b = K255 - third;
-                
-            }
-        } else {
-            if( !  (hue & 0x20)  ) {
-                // 110
-                //case 6: // P -- K
-                r = K85 + third;
-                g = 0;
-                FORCE_REFERENCE(g);
-                b = K171 - third;
-                
-            } else {
-                // 111
-                //case 7: // K -> R
-                r = K170 + third;
-                g = 0;
-                FORCE_REFERENCE(g);
-                b = K85 - third;
-                
-            }
-        }
-    }
-    
-    // This is one of the good places to scale the green down,
-    // although the client can scale green down as well.
-    if( G2 ) g = g >> 1;
-    //~ if( Gscale ) g = scale8_video_LEAVING_R1_DIRTY( g, Gscale);
-    
-    // Scale down colors if we're desaturated at all
-    // and add the brightness_floor to r, g, and b.
-    if( sat != 255 ) {
-        if( sat == 0) {
-            r = 255; b = 255; g = 255;
-        } else {
-            //nscale8x3_video( r, g, b, sat);
-            if( r ) r = scale8_LEAVING_R1_DIRTY( r, sat);
-            if( g ) g = scale8_LEAVING_R1_DIRTY( g, sat);
-            if( b ) b = scale8_LEAVING_R1_DIRTY( b, sat);
-            cleanup_R1();
-            
-            uint8_t desat = 255 - sat;
-            desat = scale8( desat, desat);
-            
-            uint8_t brightness_floor = desat;
-            r += brightness_floor;
-            g += brightness_floor;
-            b += brightness_floor;
-        }
-    }
-    
-    // Now scale everything down if we're at value < 255.
-    if( val != 255 ) {
-        
-        val = scale8_video_LEAVING_R1_DIRTY( val, val);
-        if( val == 0 ) {
-            r=0; g=0; b=0;
-        } else {
-            // nscale8x3_video( r, g, b, val);
-            if( r ) r = scale8_LEAVING_R1_DIRTY( r, val);
-            if( g ) g = scale8_LEAVING_R1_DIRTY( g, val);
-            if( b ) b = scale8_LEAVING_R1_DIRTY( b, val);
-            cleanup_R1();
-        }
-    }
-    
-    // Here we have the old AVR "missing std X+n" problem again
-    // It turns out that fixing it winds up costing more than
-    // not fixing it.
-    // To paraphrase Dr Bronner, profile! profile! profile!
-    //asm volatile(  ""  :  :  : "r26", "r27" );
-    //asm volatile (" movw r30, r26 \n" : : : "r30", "r31");
-    return Color(r, g, b);
 }
 
 //===================================================================================================================
