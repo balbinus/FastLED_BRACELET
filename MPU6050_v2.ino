@@ -1,38 +1,22 @@
 
-/* MPU6050 Basic Example Code
- by: Kris Winer
- date: May 1, 2014
- license: Beerware - Use this code however you'd like. If you 
- find it useful you can buy me a beer some time.
- 
- Demonstrate  MPU-6050 basic functionality including initialization, accelerometer trimming, sleep mode functionality as well as
- parameterizing the register addresses. Added display functions to allow display to on breadboard monitor. 
- No DMP use. We just want to get out the accelerations, temperature, and gyro readings.
- 
- SDA and SCL should have external pull-up resistors (to 3.3V).
- 10k resistors worked for me. They should be on the breakout
- board.
- 
- Hardware setup:
- MPU6050 Breakout --------- Arduino
- 3.3V --------------------- 3.3V
- SDA ----------------------- A4
- SCL ----------------------- A5
- GND ---------------------- GND
- 
-  Note: The MPU6050 is an I2C sensor and uses the Arduino Wire library. 
- Because the sensor is not 5V tolerant, we are using a 3.3 V 8 MHz Pro Mini or a 3.3 V Teensy 3.1.
- We have disabled the internal pull-ups used by the Wire library in the Wire.h/twi.c utility file.
- We are also using the 400 kHz fast I2C mode by setting the TWI_FREQ  to 400000L /twi.h utility file.
+/**
+ * Based off MPU6050 Basic Example Code by: Kris Winer (date: May 1, 2014)
+ * https://github.com/kriswiner/MPU6050
+ * License: Beerware - Use this code however you'd like. If you find it useful
+ * you can buy me a beer some time.
  */
 
 #include <FastLED.h>
 #if defined(ADAFRUIT_ITSYBITSY_M4_EXPRESS)
     #define DATA_PIN        8
     #define CLK_PIN         6
+    // Interrupt pin from MPU6050
+    #define ACCEL_INTERRUPT_PIN         2
 #elif defined(ARDUINO_TRINKET_M0)
     #define DATA_PIN        7
-    #define CLK_PIN         6
+    #define CLK_PIN         8
+    // Interrupt pin from MPU6050
+    #define ACCEL_INTERRUPT_PIN         1
 #else
     #error NO DATA PIN
 #endif
@@ -61,8 +45,6 @@ CRGB leds[NUM_LEDS];
 #define ACCEL_RELEASE               5
 // Debug through serial?
 #define SERIAL_DEBUG                0
-// Interrupt pin from MPU6050
-#define ACCEL_INTERRUPT_PIN         2
 
 /** Current state **/
 volatile struct {
@@ -130,11 +112,11 @@ void setup()
         }
 #endif
 
-        MPU6050_calibrate(accelBias);                                 // Calibrate gyro and accelerometers, load biases in bias registers
+        MPU6050_calibrate(accelBias);                                          // Calibrate gyro and accelerometers, load biases in bias registers
         MPU6050_init(AFS_2G, ACCEL_THRESHOLD, ACCEL_THRESHOLD_DURATION, ACCEL_THRESHOLD_NEG_DEC);
         attachInterrupt(digitalPinToInterrupt(ACCEL_INTERRUPT_PIN), ISR_motion_detected, RISING);
 #if SERIAL_DEBUG == 1
-        Serial.println("MPU6050 initialized for passive data mode....");        // Initialize device for passive mode read of acclerometer
+        Serial.println("MPU6050 initialized for passive data mode....");       // Initialize device for passive mode read of acclerometer
 #endif
         digitalWrite(LED_BUILTIN, LOW);
     }
@@ -144,7 +126,13 @@ void setup()
         Serial.print("Could not connect to MPU6050: 0x");
         Serial.println(c, HEX);
 #endif
-        while (1);                                                             // Loop forever if communication doesn't happen
+        while (1)                                                              // Loop forever if communication doesn't happen
+        {
+            digitalWrite(LED_BUILTIN, HIGH);
+            delay(500);
+            digitalWrite(LED_BUILTIN, LOW);
+            delay(500);
+        }
     }
 }
 
