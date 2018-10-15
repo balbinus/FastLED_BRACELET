@@ -177,6 +177,7 @@ void loop()
     // FIXME: find something better than this hack
     if (now > (ACCEL_RELEASE * 1000) && now - gState.motion_detected < (ACCEL_RELEASE * 1000))
     //~ if ((now / 8192) % 2)
+    //~ if (1)
     {
         if (!gState.int_cleared)
         {
@@ -189,7 +190,7 @@ void loop()
         
         // Rainbow base
         fill_rainbow(leds, NUM_LEDS, (gState.hue & 0xFF) << 2, 32);
-        nscale8_video(leds, NUM_LEDS, 8);
+        nscale8_video(leds, NUM_LEDS, 16);
         
         // Add white sparkle
         if ((random8() & 0x15) == 0x15)
