@@ -1,9 +1,19 @@
-
 /**
- * Based off MPU6050 Basic Example Code by: Kris Winer (date: May 1, 2014)
- * https://github.com/kriswiner/MPU6050
- * License: Beerware - Use this code however you'd like. If you find it useful
- * you can buy me a beer some time.
+ * FastLED_BRACELET
+ * Copyright (C) 2018 balbinus
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <FastLED.h>
@@ -174,10 +184,10 @@ void loop()
 {
     uint32_t now = millis();
     
-    // FIXME: find something better than this hack
+    // FIXME: find something better than this hack to decide which animation to play
+    
+    // Motion detected: rainbow with white sparkle
     if (now > (ACCEL_RELEASE * 1000) && now - gState.motion_detected < (ACCEL_RELEASE * 1000))
-    //~ if ((now / 8192) % 2)
-    //~ if (1)
     {
         if (!gState.int_cleared)
         {
@@ -202,11 +212,12 @@ void loop()
         // Convert to RGBW
         rgb_to_rgbw();
     }
+    // No motion: white breathing
     else
-    //~ if (0)
     {
         // Breathe white
         rgb_all_white_to_rgbw(0xFF);
+        
         // Scale using setBrightness to allow temporal dithering to work
         // (https://github.com/FastLED/FastLED/wiki/FastLED-Temporal-Dithering)
         uint8_t tri_hue = gState.hue & 0x100 ? 0xFF - (gState.hue & 0xFF) : gState.hue & 0xFF;
@@ -230,4 +241,3 @@ void loop()
         }
     }
 }
-
