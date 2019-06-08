@@ -60,6 +60,9 @@ CRGB leds[NUM_LEDS_RGBW];
 // Debug through serial?
 #define SERIAL_DEBUG                0
 
+// Rainbow as base instead of white breathing
+#define PRIDE_EDITION               1
+
 /** Current state **/
 volatile struct {
     uint16_t hue             = 0;
@@ -215,6 +218,16 @@ void loop()
     // No motion: white breathing
     else
     {
+#ifdef PRIDE_EDITION
+        // Full luminosity
+        FastLED.setBrightness(0xFF);
+
+        // Rainbow base
+        fill_rainbow(leds, NUM_LEDS, (gState.hue & 0xFF) << 2, 32);
+        nscale8_video(leds, NUM_LEDS, 16);
+
+        rgb_to_rgbw();
+#else
         // Breathe white
         rgb_all_white_to_rgbw(0xFF);
         
@@ -222,6 +235,7 @@ void loop()
         // (https://github.com/FastLED/FastLED/wiki/FastLED-Temporal-Dithering)
         uint8_t tri_hue = gState.hue & 0x100 ? 0xFF - (gState.hue & 0xFF) : gState.hue & 0xFF;
         FastLED.setBrightness(scale8_video(BRIGHTNESS, ease8InOutCubic(tri_hue)));
+#endif
     }
 
     // send the 'leds' array out to the actual LED strip
